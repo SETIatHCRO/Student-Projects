@@ -1,3 +1,3 @@
 # Student Projects
 
-This repository houses student projects
+This repository houses student projects.
