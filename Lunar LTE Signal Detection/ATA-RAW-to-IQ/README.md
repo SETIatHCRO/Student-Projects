@@ -30,6 +30,7 @@ The script uses command line inputs to hand user specific options to the script:
 
 This shall serve as an example on how to convert some data collected with the ATAs beamformer to IQ time samples.
 The original RF spectrum is presented in the plot below.
+
 ![Passband Spectrum](RF_Spectrum.png)
 
 This is data from a LTE cell tower which transmitts at a center frequency of 1960 MHz. As we can see, the spectrum is centered around the middle of the bandwidth. The center of the signal should end up at DC to process it further.
