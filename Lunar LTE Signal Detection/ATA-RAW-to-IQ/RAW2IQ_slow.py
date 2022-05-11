@@ -35,7 +35,7 @@ def main():
     fname = args.Input_File_Path
     f = guppi.Guppi(fname)
     hdr = f._parse_header()
-
+    
     # Check if parsed arguments meet requirements
     if args.decim < 1:
         raise Exception('Decimation Factor "'+str(args.decim)+'", is invalid')
@@ -46,12 +46,12 @@ def main():
     else:
         pol = 0
         pol_str = 'X'
-    
-    
+
 
     # Read in *.raw file
     g = guppi.Guppi(fname)
-
+    # Initialize index
+    rf_sample_idx = np.array(0)
     # Calculate number of available blocks, using file size, header size and number of bits per sample
     c = hdr['NBITS']*4*hdr['PIPERBLK']*hdr['NCHAN']
     file_size = (os.path.getsize(fname))*8
@@ -60,79 +60,91 @@ def main():
     # Getting desired amount of blocks to process
     num_blocks = int(input('How many Blocks do you want to process? \nEach Block consists of '+\
                             str(hdr['TBIN']*hdr['PIPERBLK']*1e3)+'ms worth of data.\nThe amount'+\
-                            ' of available Blocks is '+str(max_blocks)+': '))
+                             ' of available Blocks is '+str(max_blocks)+': '))
+
     # Check if the desired amount of blocks is valid
     if num_blocks > max_blocks or num_blocks<=0:
         raise Exception('Amount of Blocks: "'+str(num_blocks)+'", is invalid')
-           
-    # Calculate np.roll roll factor which will do the rf to iq conversion
+    
+    # Initialize array for Nyquist Samples
+    ts_rf = np.zeros(hdr['PIPERBLK']*hdr['NCHAN']*2*num_blocks, dtype='float')
+    f_c = np.float64(float(args.f_c)*1e6)
 
-    roll_factor = -int(args.f_c/hdr['CHAN_BW'])
-    # Opening Output file
-    write_file = open(args.Output_File_Path+'.sigmf-data', 'bw')
     # Looping through the blocks
     for block_idx in range(num_blocks):
-        # Initialize Buffer Array
-        ts_IQ = np.zeros(hdr['PIPERBLK']*hdr['NCHAN'], dtype='complex')
         print('Current Block: '+str(block_idx+1))
         with contextlib.redirect_stdout(None):
             # Reading in next block
             hdr, data = g.read_next_block()
         
-        rf_sample_idx = 0
+
         for spectrum_idx in range(data.shape[1]):
             # Looping through the Spectra in one block, converting it to IQ and then to time domain
-            rf_spectrum = data[:, spectrum_idx, pol]
-            iq_spectrum = np.roll(rf_spectrum, roll_factor)
-            ts_buf = np.fft.ifft(iq_spectrum)
-            
+            ts_buf = np.fft.irfft(np.append(data[:, spectrum_idx, pol],0))
             for sample in ts_buf:
-                # Writing result of IFFT to Buffer
-                ts_IQ[rf_sample_idx] = sample
+                # Append time domain array
+                ts_rf[rf_sample_idx] = sample
                 rf_sample_idx += 1
-        # Decimate if applicable
-        if args.decim > 1:
-            ts_IQ = signal.decimate(ts_IQ, args.decim, ftype='fir')
 
-        # Interleave and write binaries to file
-        ts_IQ_interleaved = interleave(ts_IQ)
-        write_file.write(ts_IQ_interleaved.tobytes())
-    # Close output file
-    write_file.close()
+    # Shift to IQ
+    ts_IQ = rf_to_IQ(ts_rf, hdr['OBSBW']*1e6*2, f_c, hdr['PIPERBLK'], hdr['NCHAN'], num_blocks)
+    
+
+    # Decimate if applicable
+    if args.decim > 1:
+        ts_IQ = signal.decimate(ts_IQ, args.decim, ftype='fir')
 
     # Calculating information for sigmf meta data
-    bandwidth = hdr['OBSBW']/args.decim
+    bandwidth = hdr['OBSBW']/args.decim*2
+    num_samples = len(ts_IQ)
 
+    # Interleave and write binaries to file
+    ts_IQ = np.complex64(ts_IQ)
+    ts_IQ = interleave(ts_IQ)
+    ts_IQ.tofile(args.Output_File_Path+'.sigmf-data', 'bw')
+
+    
     center_frequency = hdr['OBSFREQ'] + hdr['CHAN_BW']/2 - (hdr['OBSBW']/2-args.f_c)
 
     meta = SigMFFile(
     data_file=args.Output_File_Path+'.sigmf-data',
     global_info = {
-        SigMFFile.DATATYPE_KEY: get_data_type_str(ts_IQ_interleaved),
+        SigMFFile.DATATYPE_KEY: get_data_type_str(ts_IQ),
         SigMFFile.SAMPLE_RATE_KEY: (round(bandwidth, 2)),
         SigMFFile.AUTHOR_KEY: 'Sebastian Obernberger',
         SigMFFile.DESCRIPTION_KEY: 'Interleaved ATA Beamformer IQ capture.',
         SigMFFile.VERSION_KEY: sigmf.__version__,
         SigMFFile.FREQUENCY_KEY: center_frequency,
         'Number of Blocks': str(num_blocks),
+        'Number of Samples': str(num_samples),
         'Observation Time': str(hdr['TBIN']*hdr['PIPERBLK']*num_blocks*1e3)+'ms',
         'Polarisation': pol_str,
         'Original RAW header': hdr,
     }
     
     )
-    # Validating and writing meta data to file
     assert meta.validate()
     meta.tofile(args.Output_File_Path+'.sigmf-meta')
 
 
 
     print('Final Bandwidth is: '+str(round(bandwidth, 2))+'MHz. Data has been shifted by: '\
-            +str(round(args.f_c, 2))+'. Polarisation: '+pol_str+'.')
+            +str(round(args.f_c, 2))+'MHz. Numbers of samples: '+str(len(ts_IQ))+'. Polarisation: '+pol_str+'.')
 
+    
+@njit
+def rf_to_IQ(ts_rf, sr, f_c, piperblk, nchan, num_blocks):
+    ts_IQ = np.zeros(piperblk*nchan*2*num_blocks, dtype=np.complex128)
+    IQ_sample_idx = 0
+    for n, rf_sample in enumerate(ts_rf):
+        t = (n+1)/sr
+        ts_IQ[IQ_sample_idx] = rf_sample * np.exp(-1j*2*np.pi*f_c*t)
+        IQ_sample_idx += 1
 
-# Interleaving: Complex numbers are split into real and imaginary part and then reasambled into a new array. 
-# The real part of each number is followed by the imaginary part of the same number
+    
+
+    return ts_IQ
+
 def interleave(ts_IQ):
     output = np.append(ts_IQ.real, ts_IQ.imag)
     output[::2] = ts_IQ.real
