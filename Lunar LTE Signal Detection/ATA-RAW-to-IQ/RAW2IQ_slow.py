@@ -20,7 +20,7 @@ def main():
                             nargs='?', default=48)
 
     parser.add_argument('-decimation', '--decim', type=int, help='Decimation factor. Decreases outbut bandwidth to reduce file size.'\
-                        ' Has to be an integer larger or equal to 2.', nargs='?', default=1)
+                        ' Has to be an integer larger or equal to 2.', nargs='?', default=2)
 
     parser.add_argument('-X', '--X-Pol', help='Choose X polarisation to process. This is the default option.', action='store_true', default=True)
     parser.add_argument('-Y', '--Y-Pol', help='Choose Y polarisation to process.', action='store_true', default=False)
