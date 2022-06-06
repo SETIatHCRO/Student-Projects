@@ -31,6 +31,8 @@ def main():
                         ' format extention)', required=True)
     
     args = parser.parse_args()
+    if args.f_c == None:
+        args.f_c = 48
     # Reading the first header to extract some information
     fname = args.Input_File_Path
     f = guppi.Guppi(fname)
