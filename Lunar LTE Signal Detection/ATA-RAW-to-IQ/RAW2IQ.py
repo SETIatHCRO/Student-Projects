@@ -17,7 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description="Convert the ATA's beamformer output raw file to IQ")
     parser.add_argument('-fc', '--f_c', type=float, help='Frequency which will be shifted to DC in MHz. Default is '\
                          'the center of the recorded band (48MHz). Has to be a multiple of the channel bandwidth+',\
-                            nargs='?', default=48)
+                            nargs='?')
 
     parser.add_argument('-decimation', '--decim', type=int, help='Decimation factor. Decreases outbut bandwidth to reduce file size.'\
                         ' Has to be an integer larger or equal to 2.', nargs='?', default=1)
@@ -31,6 +31,8 @@ def main():
                         ' format extention)', required=True)
     
     args = parser.parse_args()
+    if args.f_c == None:
+        args.f_c = 48
     # Reading the first header to extract some information
     fname = args.Input_File_Path
     f = guppi.Guppi(fname)
